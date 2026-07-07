@@ -24,6 +24,16 @@ vi.mock('@/api/users', () => ({
   },
 }))
 
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args: unknown[]) => toastSuccess(...args),
+    error: (...args: unknown[]) => toastError(...args),
+  },
+}))
+
 function renderUsersPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -36,6 +46,8 @@ function renderUsersPage() {
 describe('UsersPage — force logout selected agents', () => {
   beforeEach(() => {
     forceLogout.mockClear()
+    toastSuccess.mockClear()
+    toastError.mockClear()
     useAuthStore.getState().login({
       token: 't', refreshToken: 'rt', userId: 'admin-1', name: 'Alice Admin', email: 'alice@test.com', role: 'ADMIN',
     })
@@ -110,5 +122,41 @@ describe('UsersPage — force logout selected agents', () => {
 
     await waitFor(() => expect(screen.queryByRole('button', { name: /Log Out Selected/i })).not.toBeInTheDocument())
     expect(screen.getByRole('checkbox', { name: 'Select Bob Agent' })).not.toBeChecked()
+    expect(toastSuccess).toHaveBeenCalledWith('Logged out 1 agent')
+  })
+
+  it('canceling the confirm dialog does not call forceLogout and keeps the selection', async () => {
+    const user = userEvent.setup()
+    renderUsersPage()
+
+    await waitFor(() => expect(screen.getByText('Bob Agent')).toBeInTheDocument())
+    await user.click(screen.getByRole('checkbox', { name: 'Select Bob Agent' }))
+    await user.click(screen.getByRole('button', { name: 'Log Out Selected (1)' }))
+    expect(screen.getByText('Log Out Selected Agents')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByText('Log Out Selected Agents')).not.toBeInTheDocument())
+    expect(forceLogout).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Log Out Selected (1)' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select Bob Agent' })).toBeChecked()
+  })
+
+  it('shows an error toast and keeps the dialog open/selection intact when forceLogout fails', async () => {
+    forceLogout.mockImplementationOnce(() => Promise.reject(new Error('network error')))
+    const user = userEvent.setup()
+    renderUsersPage()
+
+    await waitFor(() => expect(screen.getByText('Bob Agent')).toBeInTheDocument())
+    await user.click(screen.getByRole('checkbox', { name: 'Select Bob Agent' }))
+    await user.click(screen.getByRole('button', { name: 'Log Out Selected (1)' }))
+    await user.click(screen.getByRole('button', { name: 'Log Out' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Failed to log out selected agents'))
+    expect(toastSuccess).not.toHaveBeenCalled()
+    // Dialog and selection survive a failed attempt — nothing was silently cleared.
+    // (hidden: true because Radix marks the page aria-hidden while its dialog overlay is open.)
+    expect(screen.getByText('Log Out Selected Agents')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select Bob Agent', hidden: true })).toBeChecked()
   })
 })
