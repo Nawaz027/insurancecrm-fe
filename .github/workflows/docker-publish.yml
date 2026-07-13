@@ -46,7 +46,6 @@ jobs:
           push: true
           tags: |
             ghcr.io/intraevolve-lms/insuredindex-fe:latest
-            ghcr.io/intraevolve-lms/insuredindex-fe:${{ github.sha }}
             ghcr.io/intraevolve-lms/insuredindex-fe:${{ steps.version.outputs.version }}
 
       - name: Tag this release in git
