@@ -337,7 +337,7 @@ export default function CustomersPage() {
                   </th>
                 )}
                 <th className="hs-th">Customer</th>
-                <th className="hs-th">Phone</th>
+                {role === 'ADMIN' && <th className="hs-th">Phone</th>}
                 <th className="hs-th">Email</th>
                 <th className="hs-th">Assigned To</th>
                 {role === 'ADMIN' && (
@@ -388,7 +388,7 @@ export default function CustomersPage() {
                     )}
                   </td>
 
-                  <td className="hs-td text-[#516F90] whitespace-nowrap">{c.phone}</td>
+                  {role === 'ADMIN' && <td className="hs-td text-[#516F90] whitespace-nowrap">{c.phone}</td>}
                   <td className="hs-td text-[#516F90]">{c.email ?? '—'}</td>
 
                   {/* Smart Assigned To column */}
