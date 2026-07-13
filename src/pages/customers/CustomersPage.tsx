@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Plus, Search, Eye, Pencil, Trash2, X, UserCircle, UserCog, Upload, Download, UserCheck } from 'lucide-react'
+import { Plus, Search, Eye, Pencil, Trash2, X, UserCircle, UserCog, Upload, Download, UserCheck, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { customersApi } from '@/api/customers'
@@ -154,7 +154,28 @@ export default function CustomersPage() {
     enabled: role === 'ADMIN',
   })
   const agents = (agentsData?.data ?? []).filter((u) => u.active)
-  const customers: Customer[] = (data?.data ?? []).filter((c) => !outcomeFilter || c.lastOutcome === outcomeFilter)
+  const [sortField, setSortField] = useState<'premium' | 'expiryDate' | null>(null)
+  const [sortDir, setSortDir]     = useState<'asc' | 'desc'>('asc')
+
+  const toggleSort = (field: 'premium' | 'expiryDate') => {
+    if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortField(field); setSortDir('asc') }
+  }
+
+  const customers: Customer[] = (data?.data ?? [])
+    .filter((c) => !outcomeFilter || c.lastOutcome === outcomeFilter)
+    .sort((a, b) => {
+      if (!sortField) return 0
+      const av = sortField === 'premium' ? a.lastYearPremium : a.expiryDate
+      const bv = sortField === 'premium' ? b.lastYearPremium : b.expiryDate
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      const cmp = sortField === 'premium'
+        ? (av as number) - (bv as number)
+        : new Date(av).getTime() - new Date(bv).getTime()
+      return sortDir === 'asc' ? cmp : -cmp
+    })
 
   const clearOutcomeFilter = () => {
     setOutcomeFilter(null)
@@ -319,6 +340,26 @@ export default function CustomersPage() {
                 <th className="hs-th">Phone</th>
                 <th className="hs-th">Email</th>
                 <th className="hs-th">Assigned To</th>
+                {role === 'ADMIN' && (
+                  <>
+                    <th className="hs-th">
+                      <button onClick={() => toggleSort('premium')} className="flex items-center gap-1 hover:text-[#0091AE] transition">
+                        Premium
+                        {sortField === 'premium'
+                          ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+                          : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </th>
+                    <th className="hs-th">
+                      <button onClick={() => toggleSort('expiryDate')} className="flex items-center gap-1 hover:text-[#0091AE] transition">
+                        Expiry Date
+                        {sortField === 'expiryDate'
+                          ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+                          : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </th>
+                  </>
+                )}
                 <th className="hs-th">Created</th>
                 <th className="hs-th">Actions</th>
               </tr>
@@ -381,6 +422,17 @@ export default function CustomersPage() {
                       </div>
                     )}
                   </td>
+
+                  {role === 'ADMIN' && (
+                    <>
+                      <td className="hs-td text-[#33475B] font-medium whitespace-nowrap">
+                        {c.lastYearPremium != null ? `₹${c.lastYearPremium.toLocaleString('en-IN')}` : '—'}
+                      </td>
+                      <td className="hs-td text-[#516F90] whitespace-nowrap">
+                        {c.expiryDate ? format(new Date(c.expiryDate), 'dd MMM yyyy') : '—'}
+                      </td>
+                    </>
+                  )}
 
                   <td className="hs-td text-[#516F90] whitespace-nowrap">
                     {format(new Date(c.createdAt), 'dd MMM yyyy')}
