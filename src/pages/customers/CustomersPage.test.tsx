@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
@@ -38,11 +38,18 @@ vi.mock('@/api/customers', () => ({
       const filtered = params.outcome ? customers.filter((c) => c.lastOutcome === params.outcome) : customers
       return Promise.resolve({ success: true, message: 'ok', data: pageOf(filtered) })
     }),
+    create: vi.fn(() => Promise.resolve({ success: true, message: 'ok', data: customers[0] })),
+    update: vi.fn(() => Promise.resolve({ success: true, message: 'ok', data: customers[0] })),
+    delete: vi.fn(() => Promise.resolve({ success: true, message: 'ok', data: undefined })),
+    assignAgent: vi.fn(() => Promise.resolve({ success: true, message: 'ok', data: customers[0] })),
+    bulkDelete: vi.fn(() => Promise.resolve({ success: true, message: 'ok', data: { deletedCount: 1, notFoundIds: [] } })),
   },
 }))
 
+const agents = [{ id: 'a1', name: 'Agent Smith', email: 'smith@test.com', role: 'AGENT', active: true, createdAt: '2026-01-01T00:00:00' }]
+
 vi.mock('@/api/users', () => ({
-  usersApi: { getAll: vi.fn(() => Promise.resolve({ success: true, message: 'ok', data: [] })) },
+  usersApi: { getAll: vi.fn(() => Promise.resolve({ success: true, message: 'ok', data: agents })) },
 }))
 
 vi.mock('@/api/export', () => ({
@@ -182,5 +189,149 @@ describe('CustomersPage — Expiry Date column is visible and sortable for every
       const lastCall = vi.mocked(customersApi.getAll).mock.calls.at(-1)?.[0]
       expect(lastCall).toMatchObject({ sortBy: 'expiryDate', sortDir: 'desc' })
     })
+  })
+})
+
+describe('CustomersPage — search', () => {
+  beforeEach(() => {
+    vi.mocked(customersApi.getAll).mockClear()
+    vi.mocked(customersApi.search).mockClear()
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
+    })
+  })
+
+  it('typing in the search box calls search (debounced) instead of getAll, with the query', async () => {
+    const user = userEvent.setup()
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    await user.type(screen.getByPlaceholderText(/search by name or phone/i), 'Ringing')
+
+    await waitFor(() => expect(customersApi.search).toHaveBeenCalledWith('Ringing', expect.anything()), { timeout: 2000 })
+  })
+})
+
+describe('CustomersPage — create customer (available to every role)', () => {
+  beforeEach(() => {
+    vi.mocked(customersApi.create).mockClear()
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
+    })
+  })
+
+  it('submitting the create form with name and phone calls create and closes the dialog', async () => {
+    const user = userEvent.setup()
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /create customer/i }))
+
+    await user.type(screen.getByPlaceholderText('Full name'), 'Brand New Customer')
+    await user.type(screen.getByPlaceholderText('+91 XXXXX XXXXX'), '9555555555')
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(customersApi.create).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Brand New Customer', phone: '9555555555' }),
+    ))
+    await waitFor(() => expect(screen.queryByPlaceholderText('Full name')).not.toBeInTheDocument())
+  })
+
+  it('submitting without name or phone does not call create', async () => {
+    const user = userEvent.setup()
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /create customer/i }))
+    await user.click(screen.getByRole('button', { name: 'Create' }))
+
+    expect(customersApi.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('CustomersPage — ADMIN-only CRUD actions', () => {
+  beforeEach(() => {
+    vi.mocked(customersApi.update).mockClear()
+    vi.mocked(customersApi.delete).mockClear()
+    vi.mocked(customersApi.assignAgent).mockClear()
+    vi.mocked(customersApi.bulkDelete).mockClear()
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'admin-1', name: 'Admin One', email: 'admin@test.com', role: 'ADMIN',
+    })
+  })
+
+  it('editing a customer pre-fills the form and calls update with the customer id', async () => {
+    const user = userEvent.setup()
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    const row = screen.getByText('Ringing Customer').closest('tr')!
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByDisplayValue('Ringing Customer')).toBeInTheDocument()
+    const nameInput = screen.getByDisplayValue('Ringing Customer')
+    await user.clear(nameInput)
+    await user.type(nameInput, 'Renamed Customer')
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => expect(customersApi.update).toHaveBeenCalledWith(
+      'c1', expect.objectContaining({ name: 'Renamed Customer' }),
+    ))
+  })
+
+  it('deleting a customer opens a confirm dialog, and confirming calls delete', async () => {
+    const user = userEvent.setup()
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    const row = screen.getByText('Ringing Customer').closest('tr')!
+    const deleteButton = within(row).getAllByRole('button').find((b) => !b.textContent?.trim())!
+    await user.click(deleteButton)
+
+    expect(screen.getByText(/are you sure you want to delete "Ringing Customer"/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(customersApi.delete).toHaveBeenCalledWith('c1'))
+  })
+
+  it('assigning an unassigned customer to an agent calls assignAgent', async () => {
+    const user = userEvent.setup()
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    const row = screen.getByText('Ringing Customer').closest('tr')!
+    await user.click(within(row).getByRole('button', { name: /assign agent/i }))
+
+    await user.selectOptions(screen.getByRole('combobox'), 'a1')
+    await user.click(screen.getByRole('button', { name: 'Assign' }))
+
+    await waitFor(() => expect(customersApi.assignAgent).toHaveBeenCalledWith('c1', 'a1'))
+  })
+
+  it('selecting rows and bulk-deleting calls bulkDelete with the selected ids', async () => {
+    const user = userEvent.setup()
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    const row = screen.getByText('Ringing Customer').closest('tr')!
+    await user.click(within(row).getByRole('checkbox'))
+
+    expect(screen.getByText(/1 customer selected/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /delete selected/i }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(customersApi.bulkDelete).toHaveBeenCalledWith(['c1']))
+  })
+
+  it('selecting rows and clicking Assign to Agent opens the bulk-assign dialog', async () => {
+    const user = userEvent.setup()
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    const row = screen.getByText('Ringing Customer').closest('tr')!
+    await user.click(within(row).getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: /assign to agent/i }))
+
+    expect(screen.getByText(/select agent/i)).toBeInTheDocument()
   })
 })
