@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
+import { customersApi } from '@/api/customers'
 import type { Customer } from '@/types/customer'
 import CustomersPage from './CustomersPage'
 
@@ -11,6 +12,7 @@ const customers: Customer[] = [
   {
     id: 'c1', name: 'Ringing Customer', phone: '9111111111',
     lastOutcome: 'RINGING', createdAt: '2026-01-01T00:00:00', updatedAt: '2026-01-01T00:00:00',
+    expiryDate: '2026-03-15',
   },
   {
     id: 'c2', name: 'Callback Customer', phone: '9222222222',
@@ -129,5 +131,56 @@ describe('CustomersPage — bulk Excel/CSV import and export are admin-only', ()
     expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Export' })).toBeInTheDocument()
     expect(screen.getByTitle('Filter export by agent')).toBeInTheDocument()
+  })
+})
+
+describe('CustomersPage — Expiry Date column is visible and sortable for every role', () => {
+  beforeEach(() => {
+    vi.mocked(customersApi.getAll).mockClear()
+  })
+
+  it('an AGENT sees the Expiry Date column and its values, but not Premium', async () => {
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
+    })
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    expect(screen.getByRole('columnheader', { name: /expiry date/i })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: /premium/i })).not.toBeInTheDocument()
+    expect(screen.getByText('15 Mar 2026')).toBeInTheDocument()
+  })
+
+  it('an ADMIN sees both Expiry Date and Premium columns', async () => {
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'admin-1', name: 'Admin One', email: 'admin@test.com', role: 'ADMIN',
+    })
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+    expect(screen.getByRole('columnheader', { name: /expiry date/i })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /premium/i })).toBeInTheDocument()
+  })
+
+  it('an AGENT can sort by Expiry Date — first click asc, second click desc', async () => {
+    const user = userEvent.setup()
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
+    })
+    renderWithProviders('/customers')
+
+    await waitFor(() => expect(screen.getByText('Ringing Customer')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /expiry date/i }))
+    await waitFor(() => {
+      const lastCall = vi.mocked(customersApi.getAll).mock.calls.at(-1)?.[0]
+      expect(lastCall).toMatchObject({ sortBy: 'expiryDate', sortDir: 'asc' })
+    })
+
+    await user.click(screen.getByRole('button', { name: /expiry date/i }))
+    await waitFor(() => {
+      const lastCall = vi.mocked(customersApi.getAll).mock.calls.at(-1)?.[0]
+      expect(lastCall).toMatchObject({ sortBy: 'expiryDate', sortDir: 'desc' })
+    })
   })
 })
