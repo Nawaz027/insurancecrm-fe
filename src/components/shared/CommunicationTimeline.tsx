@@ -123,7 +123,22 @@ export function CommunicationTimeline({ entityType, entityId, queryKey }: Props)
   })
 
   const logs = data?.data ?? []
-  const invalidate = () => qc.invalidateQueries({ queryKey })
+  // Logging/deleting an activity updates the entity's lastOutcome server-side (see
+  // CommunicationLogService), which feeds the Dashboard tiles, the Leads funnel, and the
+  // Agent Performance breakdown — all of those need to refetch too, not just this timeline,
+  // or they'd keep showing stale counts until the query's staleTime lapses and the page is
+  // revisited.
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey })
+    qc.invalidateQueries({ queryKey: ['agent-performance'] })
+    if (entityType === 'customer') {
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
+    } else {
+      qc.invalidateQueries({ queryKey: ['leads-summary'] })
+      qc.invalidateQueries({ queryKey: ['leads'] })
+    }
+  }
 
   const logMutation = useMutation({
     mutationFn: (d: CreateCommunicationLogRequest) =>

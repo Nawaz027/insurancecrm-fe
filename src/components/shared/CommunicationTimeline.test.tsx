@@ -31,11 +31,12 @@ vi.mock('@/api/communications', () => ({
 
 function renderTimeline(entityType: 'customer' | 'lead' = 'lead') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <CommunicationTimeline entityType={entityType} entityId="l1" queryKey={['test-comms', 'l1']} />
     </QueryClientProvider>,
   )
+  return { ...result, queryClient }
 }
 
 describe('CommunicationTimeline — rendering', () => {
@@ -117,6 +118,61 @@ describe('CommunicationTimeline — delete permissions', () => {
     await user.click(deleteButton)
 
     await waitFor(() => expect(communicationsApi.delete).toHaveBeenCalledWith('log-2'))
+  })
+})
+
+describe('CommunicationTimeline — cache invalidation on log/delete', () => {
+  beforeEach(() => {
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
+    })
+  })
+
+  it('logging against a customer invalidates dashboard and customers, not leads', async () => {
+    const user = userEvent.setup()
+    const { queryClient } = renderTimeline('customer')
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await waitFor(() => expect(screen.getByText('Ringing')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /log activity/i }))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['dashboard'] }))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['customers'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['agent-performance'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['leads-summary'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['leads'] })
+  })
+
+  it('logging against a lead invalidates leads-summary and leads, not dashboard', async () => {
+    const user = userEvent.setup()
+    const { queryClient } = renderTimeline('lead')
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await waitFor(() => expect(screen.getByText('Ringing')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /log activity/i }))
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['leads-summary'] }))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['leads'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['agent-performance'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['customers'] })
+  })
+
+  it('deleting a log also triggers the same cross-page invalidation', async () => {
+    const user = userEvent.setup()
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'agent-2', name: 'Agent Two', email: 'b@test.com', role: 'ADMIN',
+    })
+    const { queryClient } = renderTimeline('customer')
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+    await waitFor(() => expect(screen.getByText('Callback')).toBeInTheDocument())
+    const row = screen.getByText('Callback').closest('.relative.pl-10')!
+    await user.click(row.querySelector('button')!)
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['dashboard'] }))
   })
 })
 
