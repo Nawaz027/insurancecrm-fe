@@ -35,6 +35,10 @@ vi.mock('@/api/customers', () => ({
 vi.mock('@/api/communications', () => ({
   communicationsApi: {
     getByCustomer: vi.fn(() => Promise.resolve({ success: true, message: 'ok', timestamp: '2026-01-01T00:00:00', data: [] })),
+    logForCustomer: vi.fn(() => Promise.resolve({
+      success: true, message: 'ok', timestamp: '2026-01-01T00:00:00',
+      data: { id: 'log-1', customerId: 'c1', channel: 'CALL', outcome: 'RINGING', loggedAt: '2026-01-01T00:00:00' },
+    })),
   },
 }))
 
@@ -94,6 +98,20 @@ describe('NewCustomersPage — rendering and role scoping (mirrors CustomersPage
     expect(screen.getByText('9111111111')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /premium/i })).toBeInTheDocument()
     expect(screen.getByText('₹12,000')).toBeInTheDocument()
+  })
+
+  it('shows "Unassigned" for a customer with no assigned agent (admin reviewing coverage gaps)', async () => {
+    vi.mocked(customersApi.getNew).mockResolvedValueOnce({
+      success: true, message: 'ok', timestamp: '2026-01-01T00:00:00',
+      data: pageOf([{ id: 'c3', name: 'Untouched Unassigned', phone: '9333333333', createdAt: '2026-01-03T00:00:00', updatedAt: '2026-01-03T00:00:00' }]),
+    })
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'admin-1', name: 'Admin One', email: 'admin@test.com', role: 'ADMIN',
+    })
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Untouched Unassigned')).toBeInTheDocument())
+    expect(screen.getByText('Unassigned')).toBeInTheDocument()
   })
 
   it('shows the empty state when there are no new customers', async () => {
@@ -203,5 +221,39 @@ describe('NewCustomersPage — activity + navigation', () => {
     await user.click(within(row).getByRole('button', { name: /view/i }))
 
     expect(screen.getByText('Customer Detail Page Marker')).toBeInTheDocument()
+  })
+})
+
+describe('NewCustomersPage — end to end: logging an outcome removes the customer live', () => {
+  beforeEach(() => {
+    vi.mocked(customersApi.getNew).mockClear()
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
+    })
+  })
+
+  it('the customer disappears from the list on refetch after Log Activity is saved, no manual refresh', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Fresh Import One')).toBeInTheDocument())
+    expect(screen.getByText('Fresh Import Two')).toBeInTheDocument()
+
+    // Mirrors the real backend: once logForCustomer sets lastOutcome, the customer no longer
+    // matches lastOutcome=null, so the next getNew fetch (triggered by cache invalidation) omits it.
+    vi.mocked(customersApi.getNew).mockResolvedValueOnce({
+      success: true, message: 'ok', timestamp: '2026-01-01T00:00:00',
+      data: pageOf([customers[1]]),
+    })
+
+    const row = screen.getByText('Fresh Import One').closest('tr')!
+    await user.click(within(row).getByRole('button', { name: /activity/i }))
+    await waitFor(() => expect(screen.getByText(/no activity logged yet/i)).toBeInTheDocument())
+
+    await user.click(screen.getAllByRole('button', { name: /log activity/i })[0])
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(screen.queryByText('Fresh Import One')).not.toBeInTheDocument())
+    expect(screen.getByText('Fresh Import Two')).toBeInTheDocument()
   })
 })
