@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { remindersApi } from '@/api/reminders'
+import { customersApi } from '@/api/customers'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { OUTCOME_META } from '@/components/shared/CommunicationTimeline'
 import type { DashboardSummary } from '@/types/dashboard'
@@ -71,7 +72,7 @@ const OUTCOME_STAT_COLORS: Record<CommunicationOutcome, { bg: string; color: str
   NOT_INTERESTED: { bg: 'bg-red-50', color: 'text-red-600' },
 }
 
-function buildStats(summary: DashboardSummary) {
+function buildStats(summary: DashboardSummary, newLeadCount: number) {
   const outcomeStats = DASHBOARD_OUTCOMES.map((outcome) => ({
     value: summary.outcomeCounts[outcome] ?? 0,
     label: OUTCOME_META[outcome].label,
@@ -83,6 +84,7 @@ function buildStats(summary: DashboardSummary) {
 
   return [
     { value: summary.totalCustomers, label: 'Total Customers', icon: Users, bg: 'bg-[#E5F5F8]', color: 'text-[#0091AE]', link: '/customers' },
+    { value: newLeadCount, label: 'New Lead', icon: UserPlus, bg: 'bg-teal-50', color: 'text-teal-600', link: '/new-customers' },
     ...outcomeStats,
   ]
 }
@@ -98,6 +100,12 @@ export default function DashboardPage() {
     queryKey: ['reminders'],
     queryFn: () => remindersApi.getAll(),
   })
+
+  const { data: newCustomersData } = useQuery({
+    queryKey: ['customers-new', 'count'],
+    queryFn: () => customersApi.getNew({ page: 0, size: 1 }),
+  })
+  const newLeadCount = newCustomersData?.data.totalElements ?? 0
 
   const reminders = remindersData?.data ?? []
   const overdueReminders = reminders.filter((r) => r.overdueDays > 0)
@@ -124,7 +132,7 @@ export default function DashboardPage() {
 
   const summary = data.data
 
-  const stats = buildStats(summary) as Array<{
+  const stats = buildStats(summary, newLeadCount) as Array<{
     value: number; label: string; icon: React.ElementType
     bg: string; color: string; link: string; warn?: boolean
   }>
