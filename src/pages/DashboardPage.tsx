@@ -4,6 +4,7 @@ import {
   Users, AlertTriangle,
   XCircle, RefreshCw, Bell, MessageSquare,
   PhoneForwarded, PhoneIncoming, UserPlus, PhoneCall, PhoneOff, PhoneMissed, CalendarClock, Languages, ThumbsDown,
+  CheckCircle2,
 } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { remindersApi } from '@/api/reminders'
@@ -21,14 +22,14 @@ const OUTCOME_STAT_ICONS: Record<CommunicationOutcome, React.ElementType> = {
   SWITCH_OFF:  PhoneOff,
   HANG_UP:     PhoneMissed,
   NEXT_YEAR:   CalendarClock,
-  SALE_CLOSE:  PhoneCall,
+  SALE_CLOSE:  CheckCircle2,
   LANGUAGE_ISSUE: Languages,
   NOT_INTERESTED: ThumbsDown,
 }
 
-// Dashboard funnel excludes SALE_CLOSE — once closed, the customer's policy is treated as sold
 const DASHBOARD_OUTCOMES: CommunicationOutcome[] = [
   'MY_CALLBACK', 'CALLBACK', 'PROSPECT', 'RINGING', 'SWITCH_OFF', 'HANG_UP', 'NEXT_YEAR', 'LANGUAGE_ISSUE',
+  'SALE_CLOSE', 'NOT_INTERESTED',
 ]
 
 const REMINDER_ICONS: Record<ReminderType, React.ElementType> = {
