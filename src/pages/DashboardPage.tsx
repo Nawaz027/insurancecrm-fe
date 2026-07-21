@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Users, AlertTriangle,
   XCircle, RefreshCw, TrendingUp, Bell, MessageSquare,
-  PhoneForwarded, PhoneIncoming, UserPlus, PhoneCall, PhoneOff, PhoneMissed, CalendarClock, Languages,
+  PhoneForwarded, PhoneIncoming, UserPlus, PhoneCall, PhoneOff, PhoneMissed, CalendarClock, Languages, ThumbsDown,
 } from 'lucide-react'
 import { dashboardApi } from '@/api/dashboard'
 import { remindersApi } from '@/api/reminders'
@@ -23,6 +23,7 @@ const OUTCOME_STAT_ICONS: Record<CommunicationOutcome, React.ElementType> = {
   NEXT_YEAR:   CalendarClock,
   SALE_CLOSE:  PhoneCall,
   LANGUAGE_ISSUE: Languages,
+  NOT_INTERESTED: ThumbsDown,
 }
 
 // Dashboard funnel excludes SALE_CLOSE — once closed, the lead is converted to a customer
@@ -69,6 +70,7 @@ const OUTCOME_STAT_COLORS: Record<CommunicationOutcome, { bg: string; color: str
   NEXT_YEAR:   { bg: 'bg-purple-50',  color: 'text-purple-600' },
   SALE_CLOSE:  { bg: 'bg-emerald-50', color: 'text-emerald-600' },
   LANGUAGE_ISSUE: { bg: 'bg-pink-50', color: 'text-pink-600' },
+  NOT_INTERESTED: { bg: 'bg-red-50', color: 'text-red-600' },
 }
 
 // Overview is customer-scoped only — lead call-outcome stats live on the Leads page itself.

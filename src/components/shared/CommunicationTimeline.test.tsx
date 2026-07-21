@@ -232,6 +232,24 @@ describe('CommunicationTimeline — log activity dialog', () => {
     })))
   })
 
+  it('the outcome dropdown includes Not Interested, and selecting it saves that outcome', async () => {
+    const user = userEvent.setup()
+    renderTimeline('lead')
+
+    await waitFor(() => expect(screen.getByText('Ringing')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /log activity/i }))
+
+    const select = screen.getByRole('combobox')
+    expect(within(select).getByRole('option', { name: 'Not Interested' })).toBeInTheDocument()
+
+    await user.selectOptions(select, 'NOT_INTERESTED')
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(communicationsApi.logForLead).toHaveBeenCalledWith('l1', expect.objectContaining({
+      outcome: 'NOT_INTERESTED',
+    })))
+  })
+
   it('saving for a customer calls logForCustomer, not logForLead', async () => {
     const user = userEvent.setup()
     renderTimeline('customer')
