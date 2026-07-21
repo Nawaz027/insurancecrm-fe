@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Eye, MessageSquare, PartyPopper } from 'lucide-react'
+import { Eye, MessageSquare, PartyPopper, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { customersApi } from '@/api/customers'
 import { useAuthStore } from '@/store/authStore'
@@ -19,10 +19,34 @@ export default function NewCustomersPage() {
   const { role } = useAuthStore()
   const [page, setPage] = useState(0)
   const [activityCustomerId, setActivityCustomerId] = useState<string | null>(null)
+  const [search, setSearch]             = useState('')
+  const [debouncedSearch, setDebounced] = useState('')
+  const debounceRef                     = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [sortField, setSortField]       = useState<'premium' | 'expiryDate' | null>(null)
+  const [sortDir, setSortDir]           = useState<'asc' | 'desc'>('asc')
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setDebounced(search), 400)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [search])
+
+  useEffect(() => {
+    setPage(0)
+  }, [debouncedSearch, sortField, sortDir])
+
+  const toggleSort = (field: 'premium' | 'expiryDate') => {
+    if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortField(field); setSortDir('asc') }
+  }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['customers-new', page],
-    queryFn: () => customersApi.getNew({ page, size: PAGE_SIZE }),
+    queryKey: ['customers-new', page, debouncedSearch, sortField, sortDir],
+    queryFn: () => customersApi.getNew({
+      page, size: PAGE_SIZE,
+      q: debouncedSearch.trim() || undefined,
+      sortBy: sortField ?? undefined, sortDir,
+    }),
   })
 
   const customers: Customer[] = data?.data.content ?? []
@@ -36,13 +60,21 @@ export default function NewCustomersPage() {
         description={`${totalElements} customer${totalElements !== 1 ? 's' : ''} awaiting first contact`}
       />
 
+      {/* Search — same layout as the Customers page */}
+      <div className="relative mb-4 max-w-sm">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#B0C1D4]" />
+        <input className="form-input pl-9" placeholder="Search by name or phone…" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </div>
+
       {isLoading ? (
         <LoadingSpinner className="py-24" />
       ) : customers.length === 0 ? (
         <EmptyState
           icon={<PartyPopper className="h-6 w-6" />}
-          title="You're all caught up"
-          description="Every customer assigned to you has been contacted at least once. New imports and assignments will show up here."
+          title={debouncedSearch ? 'No matching customers' : "You're all caught up"}
+          description={debouncedSearch
+            ? 'Try a different search term'
+            : 'Every customer assigned to you has been contacted at least once. New imports and assignments will show up here.'}
           action={<button onClick={() => navigate('/customers')} className="btn-secondary">Browse all customers</button>}
         />
       ) : (
@@ -51,9 +83,27 @@ export default function NewCustomersPage() {
             <thead>
               <tr>
                 <th className="hs-th">Customer</th>
-                <th className="hs-th">Phone</th>
+                {role === 'ADMIN' && <th className="hs-th">Phone</th>}
                 <th className="hs-th">Email</th>
-                {role === 'ADMIN' && <th className="hs-th">Assigned To</th>}
+                <th className="hs-th">Assigned To</th>
+                {role === 'ADMIN' && (
+                  <th className="hs-th">
+                    <button onClick={() => toggleSort('premium')} className="flex items-center gap-1 hover:text-[#0091AE] transition">
+                      Premium
+                      {sortField === 'premium'
+                        ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+                        : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                    </button>
+                  </th>
+                )}
+                <th className="hs-th">
+                  <button onClick={() => toggleSort('expiryDate')} className="flex items-center gap-1 hover:text-[#0091AE] transition">
+                    Expiry Date
+                    {sortField === 'expiryDate'
+                      ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+                      : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                  </button>
+                </th>
                 <th className="hs-th">Created</th>
                 <th className="hs-th">Actions</th>
               </tr>
@@ -70,19 +120,25 @@ export default function NewCustomersPage() {
                         </p>
                       )}
                     </td>
-                    <td className="hs-td text-[#516F90] whitespace-nowrap">{c.phone}</td>
+                    {role === 'ADMIN' && <td className="hs-td text-[#516F90] whitespace-nowrap">{c.phone}</td>}
                     <td className="hs-td text-[#516F90]">{c.email ?? '—'}</td>
+                    <td className="hs-td">
+                      {c.assignedAgentName ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-full px-2.5 py-0.5 w-fit">
+                          {c.assignedAgentName}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[#B0C1D4] italic">Unassigned</span>
+                      )}
+                    </td>
                     {role === 'ADMIN' && (
-                      <td className="hs-td">
-                        {c.assignedAgentName ? (
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-full px-2.5 py-0.5 w-fit">
-                            {c.assignedAgentName}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-[#B0C1D4] italic">Unassigned</span>
-                        )}
+                      <td className="hs-td text-[#33475B] font-medium whitespace-nowrap">
+                        {c.lastYearPremium != null ? `₹${c.lastYearPremium.toLocaleString('en-IN')}` : '—'}
                       </td>
                     )}
+                    <td className="hs-td text-[#516F90] whitespace-nowrap">
+                      {c.expiryDate ? format(new Date(c.expiryDate), 'dd MMM yyyy') : '—'}
+                    </td>
                     <td className="hs-td text-[#516F90] whitespace-nowrap">
                       {format(new Date(c.createdAt), 'dd MMM yyyy')}
                     </td>
@@ -113,7 +169,7 @@ export default function NewCustomersPage() {
                       of this list on the next fetch, since it no longer matches lastOutcome=null. */}
                   {activityCustomerId === c.id && (
                     <tr>
-                      <td colSpan={role === 'ADMIN' ? 6 : 5} className="bg-[#F5F8FA] px-6 py-4 border-b border-[#DFE3EB]">
+                      <td colSpan={role === 'ADMIN' ? 8 : 6} className="bg-[#F5F8FA] px-6 py-4 border-b border-[#DFE3EB]">
                         <CommunicationTimeline
                           entityType="customer"
                           entityId={c.id}

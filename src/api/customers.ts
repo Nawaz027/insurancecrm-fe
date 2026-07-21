@@ -14,6 +14,9 @@ export interface CustomerListParams {
 export interface NewCustomersParams {
   page?: number
   size?: number
+  q?: string
+  sortBy?: 'premium' | 'expiryDate'
+  sortDir?: 'asc' | 'desc'
 }
 
 export const customersApi = {

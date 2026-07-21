@@ -11,8 +11,8 @@ import NewCustomersPage from './NewCustomersPage'
 const customers: Customer[] = [
   {
     id: 'c1', name: 'Fresh Import One', phone: '9111111111', email: 'one@test.com',
-    assignedAgentId: 'agent-1', assignedAgentName: 'Agent One',
-    createdAt: '2026-01-01T00:00:00', updatedAt: '2026-01-01T00:00:00',
+    assignedAgentId: 'agent-1', assignedAgentName: 'Agent One', lastYearPremium: 12000,
+    expiryDate: '2026-03-15', createdAt: '2026-01-01T00:00:00', updatedAt: '2026-01-01T00:00:00',
   },
   {
     id: 'c2', name: 'Fresh Import Two', phone: '9222222222',
@@ -52,12 +52,12 @@ function renderPage() {
   )
 }
 
-describe('NewCustomersPage — rendering and role scoping', () => {
+describe('NewCustomersPage — rendering and role scoping (mirrors CustomersPage layout)', () => {
   beforeEach(() => {
     vi.mocked(customersApi.getNew).mockClear()
   })
 
-  it('renders each uncontacted customer with name, phone, and email', async () => {
+  it('renders each uncontacted customer with name, email, expiry date, and created date', async () => {
     useAuthStore.getState().login({
       token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
     })
@@ -65,28 +65,35 @@ describe('NewCustomersPage — rendering and role scoping', () => {
 
     await waitFor(() => expect(screen.getByText('Fresh Import One')).toBeInTheDocument())
     expect(screen.getByText('one@test.com')).toBeInTheDocument()
-    expect(screen.getByText('9222222222')).toBeInTheDocument()
+    expect(screen.getByText('15 Mar 2026')).toBeInTheDocument()
+    expect(screen.getAllByText('01 Jan 2026').length).toBeGreaterThan(0)
   })
 
-  it('an AGENT does not see an Assigned To column', async () => {
+  it('an AGENT sees Assigned To but not Phone or Premium', async () => {
     useAuthStore.getState().login({
       token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
     })
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Fresh Import One')).toBeInTheDocument())
-    expect(screen.queryByRole('columnheader', { name: /assigned to/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /assigned to/i })).toBeInTheDocument()
+    expect(screen.getAllByText('Agent One').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('columnheader', { name: /^phone$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: /premium/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('9111111111')).not.toBeInTheDocument()
   })
 
-  it('an ADMIN sees an Assigned To column with the agent name', async () => {
+  it('an ADMIN additionally sees Phone and Premium columns', async () => {
     useAuthStore.getState().login({
       token: 't', refreshToken: 'rt', userId: 'admin-1', name: 'Admin One', email: 'admin@test.com', role: 'ADMIN',
     })
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Fresh Import One')).toBeInTheDocument())
-    expect(screen.getByRole('columnheader', { name: /assigned to/i })).toBeInTheDocument()
-    expect(screen.getAllByText('Agent One').length).toBeGreaterThan(0)
+    expect(screen.getByRole('columnheader', { name: /^phone$/i })).toBeInTheDocument()
+    expect(screen.getByText('9111111111')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /premium/i })).toBeInTheDocument()
+    expect(screen.getByText('₹12,000')).toBeInTheDocument()
   })
 
   it('shows the empty state when there are no new customers', async () => {
@@ -99,6 +106,69 @@ describe('NewCustomersPage — rendering and role scoping', () => {
     renderPage()
 
     await waitFor(() => expect(screen.getByText(/you're all caught up/i)).toBeInTheDocument())
+  })
+})
+
+describe('NewCustomersPage — search', () => {
+  beforeEach(() => {
+    vi.mocked(customersApi.getNew).mockClear()
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'agent-1', name: 'Agent One', email: 'a@test.com', role: 'AGENT',
+    })
+  })
+
+  it('typing in the search box calls getNew with the query (debounced)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Fresh Import One')).toBeInTheDocument())
+    await user.type(screen.getByPlaceholderText(/search by name or phone/i), 'Fresh')
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(customersApi.getNew).mock.calls.at(-1)?.[0]
+      expect(lastCall).toMatchObject({ q: 'Fresh' })
+    }, { timeout: 2000 })
+  })
+})
+
+describe('NewCustomersPage — sorting', () => {
+  beforeEach(() => {
+    vi.mocked(customersApi.getNew).mockClear()
+    useAuthStore.getState().login({
+      token: 't', refreshToken: 'rt', userId: 'admin-1', name: 'Admin One', email: 'admin@test.com', role: 'ADMIN',
+    })
+  })
+
+  it('clicking the Expiry Date header sorts asc then desc', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Fresh Import One')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /expiry date/i }))
+    await waitFor(() => {
+      const lastCall = vi.mocked(customersApi.getNew).mock.calls.at(-1)?.[0]
+      expect(lastCall).toMatchObject({ sortBy: 'expiryDate', sortDir: 'asc' })
+    })
+
+    await user.click(screen.getByRole('button', { name: /expiry date/i }))
+    await waitFor(() => {
+      const lastCall = vi.mocked(customersApi.getNew).mock.calls.at(-1)?.[0]
+      expect(lastCall).toMatchObject({ sortBy: 'expiryDate', sortDir: 'desc' })
+    })
+  })
+
+  it('clicking the Premium header (ADMIN-only) sorts by premium', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Fresh Import One')).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /premium/i }))
+
+    await waitFor(() => {
+      const lastCall = vi.mocked(customersApi.getNew).mock.calls.at(-1)?.[0]
+      expect(lastCall).toMatchObject({ sortBy: 'premium', sortDir: 'asc' })
+    })
   })
 })
 
